@@ -1,6 +1,7 @@
 services:
   python:
     image: python:3.12-alpine
+    profiles: ["python"]
     container_name: python_env
     stdin_open: true
     tty: true
@@ -10,6 +11,7 @@ services:
 
   rust:
     image: rust:alpine
+    profiles: ["rust"]
     container_name: rust_env
     stdin_open: true
     tty: true
@@ -19,6 +21,7 @@ services:
 
   go:
     image: golang:alpine
+    profiles: ["go"]
     container_name: go_env
     stdin_open: true
     tty: true
@@ -28,6 +31,7 @@ services:
 
   bun:
     image: oven/bun:alpine
+    profiles: ["go"]
     container_name: bun_env
     stdin_open: true
     tty: true
