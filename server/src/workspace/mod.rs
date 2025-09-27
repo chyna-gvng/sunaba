@@ -18,12 +18,51 @@ pub fn ensure_dirs(langs: &[&str]) -> Result<(Vec<String>, Vec<String>), SunabaE
 
 pub fn resolve_safe_path(lang: &str, rel_path: &str) -> Result<PathBuf, SunabaError> {
     let base = language_dir(lang);
-    let target = base.join(rel_path);
+
+    // Allow container-absolute paths like "/workspace/<...>" by stripping the prefix.
+    let mut rel = rel_path;
+    if let Some(prefix) = rel_path.strip_prefix(DEFAULT.container_ws_path) {
+        // Strip leading slash if present after prefix
+        rel = prefix.strip_prefix('/').unwrap_or(prefix);
+    }
+
+    // Reject absolute host paths outright (only container-absolute under /workspace is allowed)
+    let path_in = Path::new(rel);
+    if Path::new(rel_path).is_absolute() && !rel_path.starts_with(DEFAULT.container_ws_path) {
+        return Err(SunabaError::InvalidInput("absolute paths outside container workspace are not allowed".into()));
+    }
+
+    // Lexically normalize to prevent traversal outside base
+    let mut sanitized = PathBuf::new();
+    for comp in path_in.components() {
+        use std::path::Component;
+        match comp {
+            Component::CurDir => { /* skip */ }
+            Component::ParentDir => {
+                if !sanitized.pop() {
+                    return Err(SunabaError::InvalidInput("path escapes workspace".into()));
+                }
+            }
+            Component::Normal(seg) => sanitized.push(seg),
+            Component::RootDir | Component::Prefix(_) => {
+                // Should not occur due to checks above
+                return Err(SunabaError::InvalidInput("invalid absolute path".into()));
+            }
+        }
+    }
+
+    let target = base.join(sanitized);
+
+    // Final defensive check using canonicalize if base exists
     let canon_base = std::fs::canonicalize(&base).unwrap_or(base);
-    let canon_target = std::fs::canonicalize(&target).unwrap_or(target.clone());
-    if !canon_target.starts_with(&canon_base) {
+    let canon_target = match std::fs::canonicalize(&target) {
+        Ok(p) => p,
+        Err(_) => target.clone(), // If it doesn't exist yet, rely on lexical check above
+    };
+    if canon_target.is_absolute() && !canon_target.starts_with(&canon_base) {
         return Err(SunabaError::InvalidInput("path escapes workspace".into()));
     }
+
     Ok(target)
 }
 
