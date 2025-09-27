@@ -67,9 +67,10 @@ impl SunabaTools {
     #[tool(name = "file_write", description = "Atomically write a file in the workspace")]
     pub async fn file_write(&self, params: Parameters<FileWriteInput>) -> Result<Json<FileWriteOutput>, String> {
         let lang_slug = match &params.0.language { Language::Python => "python", Language::Rust => "rust", Language::Go => "go", Language::Bun => "bun" };
-        let path = workspace::resolve_safe_path(lang_slug, &params.0.rel_path).map_err(|e| e.to_string())?;
-        let (bytes, created) = workspace::atomic_write(&path, &params.0.content, params.0.create_parents.unwrap_or(true)).map_err(|e| e.to_string())?;
-        Ok(Json(FileWriteOutput { path: path.display().to_string(), bytes, created }))
+        let spec = workspace::path::resolve(lang_slug, &params.0.rel_path).map_err(|e| e.to_string())?;
+        let (bytes, created) = workspace::atomic_write(&spec.host, &params.0.content, params.0.create_parents.unwrap_or(true)).map_err(|e| e.to_string())?;
+        // Return multiple representations for client convenience
+        Ok(Json(FileWriteOutput { path: spec.container, bytes, created }))
     }
 
     #[tool(name = "exec_code", description = "Execute code inside the language container")]
@@ -79,20 +80,35 @@ impl SunabaTools {
         let lang = input.language.clone();
         let (lang_slug, default_file, run_cmd): (&str, &str, fn(&str, &ExecCodeInput) -> Vec<String>) = match &lang {
             Language::Python => ("python", "main.py", |ep, inp| { let mut v = vec!["python".into(), ep.into()]; if let Some(a)=&inp.args { v.extend(a.clone()); } v }),
-            Language::Rust => ("rust", "main.rs", |ep, inp| { vec!["/bin/sh".into(), "-c".into(), format!("rustc {} -o /workspace/main_bin {} && /workspace/main_bin{}", ep, inp.compile_args.as_ref().map(|v| v.join(" ")).unwrap_or_default(), inp.args.as_ref().map(|v| format!(" {}", v.join(" "))).unwrap_or_default())] }),
+            Language::Rust => ("rust", "main.rs", |ep, inp| {
+                let ep_q = shell_escape::escape(std::borrow::Cow::from(ep));
+                let comp = inp.compile_args.as_ref().map(|v| v.join(" ")).unwrap_or_default();
+                let args = inp.args.as_ref().map(|v| format!(" {}", v.join(" "))).unwrap_or_default();
+                // Place compile args before source (rustc [opts] <src> -o <out>)
+                let cmd = if comp.is_empty() {
+                    format!("rustc {} -o /workspace/main_bin && /workspace/main_bin{}", ep_q, args)
+                } else {
+                    format!("rustc {} {} -o /workspace/main_bin && /workspace/main_bin{}", comp, ep_q, args)
+                };
+                vec!["/bin/sh".into(), "-c".into(), cmd]
+            }),
             Language::Go => ("go", "main.go", |ep, inp| { let mut v = vec!["go".into(), "run".into(), ep.into()]; if let Some(a)=&inp.args { v.extend(a.clone()); } v }),
-            Language::Bun => ("bun", "main.js", |ep, inp| { let mut v = vec!["bun".into(), "run".into(), ep.into()]; if let Some(a)=&inp.args { v.extend(a.clone()); } v }),
+            Language::Bun => ("bun", "main.js", |ep, inp| {
+                let is_path = ep.starts_with('/') || ep.contains('/');
+                let mut v = if is_path { vec!["bun".into(), ep.into()] } else { vec!["bun".into(), "run".into(), ep.into()] };
+                if let Some(a)=&inp.args { v.extend(a.clone()); }
+                v
+            }),
         };
         let _ = workspace::ensure_dirs(&[lang_slug]).map_err(|e| e.to_string())?;
-        let ep_rel = if let Some(ep) = &input.entrypoint { ep.clone() } else { default_file.to_string() };
+        let ep_in = if let Some(ep) = &input.entrypoint { ep.clone() } else { default_file.to_string() };
+        let spec = workspace::path::resolve(lang_slug, &ep_in).map_err(|e| e.to_string())?;
         if let Some(code) = &input.code {
-            let ep = workspace::resolve_safe_path(lang_slug, &ep_rel).map_err(|e| e.to_string())?;
-            let _ = workspace::atomic_write(&ep, code, true).map_err(|e| e.to_string())?;
+            let _ = workspace::atomic_write(&spec.host, code, true).map_err(|e| e.to_string())?;
         }
         let name = docker::ensure_container(&docker, &lang).await.map_err(|e| e.to_string())?;
         let _ = docker::start_container(&docker, &name).await.map_err(|e| e.to_string())?;
-        let container_ep = format!("{}/{}", DEFAULT.container_ws_path, ep_rel);
-        let cmd = run_cmd(&container_ep, &input);
+        let cmd = run_cmd(&spec.container, &input);
         let env = input.env.map(|m| m.into_iter().map(|(k,v)| format!("{}={}", k, v)).collect());
         let start = std::time::Instant::now();
         let timeout_secs = input.timeout_secs.unwrap_or(60);
