@@ -1,5 +1,5 @@
 # Sunaba
 ## Stack
 - Linux
-- Just
+- Docker
 - Rust
