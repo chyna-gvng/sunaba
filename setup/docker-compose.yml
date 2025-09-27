@@ -1,0 +1,36 @@
+services:
+  python:
+    image: python:3.12-alpine
+    container_name: python_env
+    stdin_open: true
+    tty: true
+    command: sleep infinity
+    volumes:
+      - ./workspace:/workspace
+
+  rust:
+    image: rust:alpine
+    container_name: rust_env
+    stdin_open: true
+    tty: true
+    command: sleep infinity
+    volumes:
+      - ./workspace:/workspace
+
+  go:
+    image: golang:alpine
+    container_name: go_env
+    stdin_open: true
+    tty: true
+    command: sleep infinity
+    volumes:
+      - ./workspace:/workspace
+
+  bun:
+    image: oven/bun:alpine
+    container_name: bun_env
+    stdin_open: true
+    tty: true
+    command: sleep infinity
+    volumes:
+      - ./workspace:/workspace
