@@ -1,5 +1,7 @@
 use std::{fs, io::Write, path::{Path, PathBuf}};
 
+pub mod path;
+
 use crate::{config::DEFAULT, errors::SunabaError};
 
 pub fn language_dir(lang: &str) -> PathBuf {
