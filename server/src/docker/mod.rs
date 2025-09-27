@@ -55,19 +55,34 @@ async fn ensure_image(docker: &Docker, image: &str) -> Result<(), SunabaError> {
 
 pub async fn ensure_container(docker: &Docker, lang: &crate::models::Language) -> Result<String, SunabaError> {
     let (name, image, ws_lang) = names_for(lang);
-    if docker.inspect_container(&name, None::<InspectContainerOptions>).await.is_ok() {
-        return Ok(name);
+
+    // Compute expected bind path
+    let _ = crate::workspace::ensure_dirs(&[&ws_lang])?;
+    let host_ws = std::fs::canonicalize(crate::workspace::language_dir(&ws_lang)).unwrap_or(DEFAULT.ws_root.join(&ws_lang));
+    let container_ws = DEFAULT.container_ws_path;
+    let expected_bind = format!("{}:{}", host_ws.display(), container_ws);
+
+    if let Ok(details) = docker.inspect_container(&name, None::<InspectContainerOptions>).await {
+        // Verify bind mount correctness; if wrong, recreate the container
+        let mut has_expected = false;
+        if let Some(hc) = details.host_config {
+            if let Some(binds) = hc.binds {
+                has_expected = binds.iter().any(|b| b == &expected_bind);
+            }
+        }
+        if has_expected {
+            return Ok(name);
+        } else {
+            // Recreate container to enforce correct bind
+            let _ = remove_container(docker, &name).await.ok();
+        }
     }
 
     // Ensure the image is available locally
     ensure_image(docker, &image).await?;
 
-    // Ensure workspace directory exists on host for bind mount
-    let _ = crate::workspace::ensure_dirs(&[&ws_lang])?;
-    let host_ws = std::fs::canonicalize(crate::workspace::language_dir(&ws_lang)).unwrap_or(DEFAULT.ws_root.join(&ws_lang));
-    let container_ws = DEFAULT.container_ws_path;
-
-    let binds = vec![ format!("{}:{}", host_ws.display(), container_ws) ];
+    // Create container with correct bind
+    let binds = vec![ expected_bind ];
     let host_config = HostConfig { binds: Some(binds), ..Default::default() };
 
     let cfg = ContainerCreateBody {
