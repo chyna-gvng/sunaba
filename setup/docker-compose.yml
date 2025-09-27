@@ -31,7 +31,7 @@ services:
 
   bun:
     image: oven/bun:alpine
-    profiles: ["go"]
+    profiles: ["bun"]
     container_name: bun_env
     stdin_open: true
     tty: true
