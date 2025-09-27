@@ -7,7 +7,7 @@ services:
     tty: true
     command: sleep infinity
     volumes:
-      - ./workspace:/workspace
+      - ./workspace/python:/workspace
 
   rust:
     image: rust:alpine
@@ -17,7 +17,7 @@ services:
     tty: true
     command: sleep infinity
     volumes:
-      - ./workspace:/workspace
+      - ./workspace/rust:/workspace
 
   go:
     image: golang:alpine
@@ -27,7 +27,7 @@ services:
     tty: true
     command: sleep infinity
     volumes:
-      - ./workspace:/workspace
+      - ./workspace/go:/workspace
 
   bun:
     image: oven/bun:alpine
@@ -37,4 +37,4 @@ services:
     tty: true
     command: sleep infinity
     volumes:
-      - ./workspace:/workspace
+      - ./workspace/bun:/workspace
