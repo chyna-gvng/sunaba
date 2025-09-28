@@ -11,7 +11,7 @@
 cargo build --release
 
 # Install
-install -m 755 target/release/server "$HOME/.local/bin/sunaba"
+install -m 755 target/release/sunaba "$HOME/.local/bin/sunaba"
 
 # Verify
 which sunaba
